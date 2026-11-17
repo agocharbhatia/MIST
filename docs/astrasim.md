@@ -12,8 +12,11 @@ concurrent transfers share links.
 
 The backend is a git submodule at
 `extern/network_backend/astra-network-analytical`. It points to the
-`mist-integration` branch of a fork that adds Python bindings
-(`simulation_py_congestion_aware`). The compiled module is not committed.
+`mist-integration` branch of
+[abhibambhaniya/astra-network-analytical](https://github.com/abhibambhaniya/astra-network-analytical),
+a fork of ASTRA-sim's analytical network backend that adds Python bindings
+(`simulation_py_congestion_aware`) and the clock calls MIST needs. The
+compiled module is not committed.
 
 Prerequisites: a C++17 compiler, CMake ≥ 3.14 and `pip install pybind11`.
 
