@@ -1,5 +1,5 @@
 [submodule "extern/network_backend/astra-network-analytical"]
 	path = extern/network_backend/astra-network-analytical
-	url = https://github.com/HanjiangWu313/astra-network-analytical.git
+	url = https://github.com/abhibambhaniya/astra-network-analytical.git
 	branch = mist-integration
 	ignore = untracked
