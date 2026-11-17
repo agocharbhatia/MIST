@@ -64,3 +64,10 @@ event. Transfers therefore start when the request leaves its source client and
 finish at the time ASTRA-sim computes, including queueing behind earlier
 transfers on shared links. This uses the `get_next_event_time` and
 `advance_to` bindings, which the submodule commit pinned here provides.
+
+## Verify
+
+`python scripts/verify_astrasim.py` runs MIST with and without ASTRA-sim and
+checks that isolated transfers take latency + size / bandwidth, that queueing
+on a shared link matches a hand-computed FIFO link, that no event is scheduled
+in the past, and that runs without ASTRA-sim are unchanged.
