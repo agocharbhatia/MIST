@@ -178,10 +178,12 @@ which installs this package.
 ## Known limitations
 
 - **Paper features not in this release.** The paper also describes
-  speculative decoding with an EAGLE-style draft stage, 3- and 4-way
-  disaggregation, and ASTRA-sim as the inter-client network backend. This
-  repository does not include them yet; inter-client transfers use the
-  analytical link model in `mist.Global_Network`.
+  speculative decoding with an EAGLE-style draft stage, and 3- and
+  4-way disaggregation. This repository does not include them yet.
+- **ASTRA-sim network backend is optional.** Inter-client transfers use the
+  analytical link model in `mist.Global_Network` unless a coordinator gets
+  `astrasim_topology=...`. That path needs a compiled backend and times
+  overlapping transfers only approximately; see [docs/astrasim.md](docs/astrasim.md).
 - **GenZ version skew.** Current GenZ `db.py` refers to `*QuantMode.bfloat16`
   names that its vendored `aiconfigurator` renamed; constructing an ECHELON
   `NPU` for the profiled-ops devices (`h100_sxm`, `tpu_v6e`, ...) raises

@@ -5,7 +5,7 @@ from mist.Scheduler import SchedulerConfig, BatchingMethod
 from mist.Input_requests import UniformDistribution, TraceDistributions, PoissonDistribution, LengthVariables
 from mist.Clusters import ClusterConfig
 from mist.Request import Request,RequestStage
-from typing import List
+from typing import List, Optional
 from mist.Global_Network import get_network_bw_between_clients, get_network_spec
 import pandas as pd
 from collections import deque
@@ -38,7 +38,8 @@ class MISTCoordinatorDisagg_DistServe(MISTCoordinator):
         num_prefill_clients=1,
         num_decode_clients=1,
         cluster = None,
-        cluster_schedule=CoordRouterType.JOIN_SHORTEST_QUEUE
+        cluster_schedule=CoordRouterType.JOIN_SHORTEST_QUEUE,
+        astrasim_topology: Optional[str] = None,
         ) -> None:
         
         # Defaults are built per instance: a request queue or cluster in the signature
@@ -60,7 +61,7 @@ class MISTCoordinatorDisagg_DistServe(MISTCoordinator):
         self.cluster = cluster
         self.model = model
         # Initialize the parent class
-        super().__init__(request_queue_distr)
+        super().__init__(request_queue_distr, astrasim_topology=astrasim_topology)
 
         # PARAMS for the cluster (system) configs
         self.cluster_schedule=cluster_schedule
