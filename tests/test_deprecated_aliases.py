@@ -33,18 +33,3 @@ def test_old_kwargs_attributes_and_methods():
     coordinator = MISTCoordinator([], logging_file=None)
     with pytest.warns(DeprecationWarning):
         assert coordinator.add_engine == coordinator.add_client
-
-
-def test_assigning_old_attribute_names_sets_new_ones():
-    from mist import Request
-    from mist.Request.request import StageMetrics
-
-    req = Request(input_len=8, output_len=2)
-    with pytest.warns(DeprecationWarning):
-        req.engine_preference = [3]
-    assert req.client_preference == [3] and "engine_preference" not in vars(req)
-
-    stage = StageMetrics()
-    with pytest.warns(DeprecationWarning):
-        stage.engine_exit_time = 5.0
-    assert stage.client_exit_time == 5.0

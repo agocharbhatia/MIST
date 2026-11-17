@@ -70,38 +70,6 @@ def _instance_getattr(self, name):
     raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
 
-def _old_name(new: str) -> str:
-    return (new.replace("Client", "Engine").replace("client", "engine")
-               .replace("Cluster", "Platform").replace("cluster", "platform"))
-
-
-def _attribute_alias(new):
-    """Class-level property: reading or assigning the old name uses `new`.
-
-    __getattr__ above only covers reads. Without this, `req.engine_preference = x`
-    would silently create an unused attribute."""
-    old = _old_name(new)
-
-    def get(self):
-        _warn(old, new)
-        return getattr(self, new)
-
-    def set(self, value):
-        _warn(old, new)
-        setattr(self, new, value)
-
-    return old, property(get, set)
-
-
-# Instance attributes that callers set directly, by class (dotted path).
-SETTABLE = {
-    "mist.Request.request.Request": ("client_preference", "client_assigned_stage"),
-    "mist.Request.request.StageMetrics": ("client_id", "client_entry_time", "client_exit_time"),
-    "mist.Client.MIST_Client.MISTClient": ("cluster", "client_id", "client_types"),
-    "mist.Clusters.clusters.ClusterConfig": ("cluster_type",),
-}
-
-
 def _accept_old_kwargs(fn, overrides):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -129,13 +97,6 @@ def install() -> None:
     for cls in (MISTClient, ClientMetrics, ClusterConfig, MemoryCacheConfig,
                 MISTCoordinator, Request, RequestMetrics, StageMetrics):
         setattr(cls, "__getattr__", _instance_getattr)
-
-    for path, attrs in SETTABLE.items():
-        module, name = path.rsplit(".", 1)
-        cls = getattr(importlib.import_module(module), name)
-        for new in attrs:
-            old, prop = _attribute_alias(new)
-            setattr(cls, old, prop)
 
     # Constructors (each subclass defines its own __init__) and add_client.
     for base in (MISTClient, ClusterConfig, MISTCoordinator):
