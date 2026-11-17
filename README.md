@@ -182,8 +182,8 @@ which installs this package.
   4-way disaggregation. This repository does not include them yet.
 - **ASTRA-sim network backend is optional.** Inter-client transfers use the
   analytical link model in `mist.Global_Network` unless a coordinator gets
-  `astrasim_topology=...`. That path needs a compiled backend and times
-  overlapping transfers only approximately; see [docs/astrasim.md](docs/astrasim.md).
+  `astrasim_topology=...`. That path needs a compiled backend; see
+  [docs/astrasim.md](docs/astrasim.md).
 - **GenZ version skew.** Current GenZ `db.py` refers to `*QuantMode.bfloat16`
   names that its vendored `aiconfigurator` renamed; constructing an ECHELON
   `NPU` for the profiled-ops devices (`h100_sxm`, `tpu_v6e`, ...) raises

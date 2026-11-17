@@ -35,6 +35,13 @@ def _fake_backend():
             self.now, _, req_id = heapq.heappop(self.events)
             self.arrived.append(req_id)
 
+        def get_next_event_time(self):
+            return self.events[0][0]
+
+        def advance_to(self, t):
+            assert t >= self.now and (not self.events or t < self.events[0][0])
+            self.now = t
+
         def get_and_clear_arrivals(self):
             out, self.arrived = self.arrived, []
             return out
@@ -47,7 +54,7 @@ def _fake_backend():
             size, req_id, q = chunk
             # Same units as MISTCoordinator._get_move_request_time: MB / (GB/s) = ms.
             ms = LATENCY_MS + size / 2**20 / BW_GBPS
-            heapq.heappush(q.events, (q.now + ms * 1e6, req_id, req_id))
+            heapq.heappush(q.events, (q.now + round(ms * 1e6), req_id, req_id))
 
         @staticmethod
         def set_event_queue(q):
@@ -88,13 +95,44 @@ def test_astrasim_path_matches_analytical_links(tmp_path, monkeypatch):
     net = _run(queue, astrasim_topology=str(topo))
 
     assert net.request_serviced == ref.request_serviced == len(queue)
-    assert not net._in_flight
+    assert not net._in_flight and net.network.next_event_ms() is None
     kv = lambda c: sorted((r.request_id, r.metrics.kv_transfer_time) for r in c.completed_requests)
     for (i, a), (j, b) in zip(kv(ref), kv(net)):
-        assert i == j and b == pytest.approx(a, rel=1e-9) and b > 0
-    assert net.get_global_stats().TTFT == pytest.approx(ref.get_global_stats().TTFT, rel=1e-9)
+        assert i == j and b == pytest.approx(a, abs=1e-5) and b > 0
+    assert net.get_global_stats().TTFT == pytest.approx(ref.get_global_stats().TTFT, abs=1e-5)
 
 
 def test_missing_topology_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         _run(make_queue(rps=1, sim_time=500), astrasim_topology=str(tmp_path / "nope.yml"))
+
+
+def test_clocks_stay_aligned_under_contention(tmp_path, monkeypatch):
+    """One FIFO link: a transfer sent while another is in flight waits for it, and no
+    transfer finishes before it was sent or before the previous one on the link."""
+    backend = _fake_backend()
+    link_free = [0]
+    sends = []
+
+    def send_python(self, chunk):
+        size, req_id, q = chunk
+        start = max(q.now, link_free[0])
+        link_free[0] = start + round((LATENCY_MS + size / 2**20 / BW_GBPS) * 1e6)
+        sends.append((req_id, q.now, link_free[0]))
+        heapq.heappush(q.events, (link_free[0], req_id, req_id))
+
+    backend.Topology.send_python = send_python
+    monkeypatch.setitem(sys.modules, "simulation_py_congestion_aware", backend)
+    topo = tmp_path / "topo.yml"
+    topo.write_text("")
+    queue = make_queue(rps=40, sim_time=2000)
+    net = _run(queue, astrasim_topology=str(topo))
+
+    assert net.request_serviced == len(queue)
+    assert any(end - sent > round((LATENCY_MS + 1 / 2**20 / BW_GBPS) * 1e6) * 2 for _, sent, end in sends), \
+        "expected some queueing on the link"
+    by_id = {r.request_id: r for r in net.completed_requests}
+    for req_id, sent_ns, end_ns in sends:
+        kv = by_id[req_id].metrics.kv_transfer_time
+        if kv is not None:
+            assert kv == pytest.approx((end_ns - sent_ns) / 1e6, abs=1e-5)

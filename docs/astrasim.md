@@ -55,11 +55,12 @@ directory.
 - `request.metrics.kv_transfer_time` holds the ASTRA-sim transfer time for the
   prefill-to-decode move.
 
-## Limitation
+## Timing
 
-ASTRA-sim keeps its own clock, and its bindings cannot report the time of the
-next pending event. Each transfer's duration is measured on the ASTRA-sim
-clock and added to the time the request left its source client, so an
-isolated transfer is timed exactly. When transfers overlap, MIST advances the
-ASTRA-sim clock in step with its own clock only approximately, so the
-contention between transfers sent at different times is approximate.
+ASTRA-sim keeps time in ns and MIST in ms. The coordinator keeps the two
+clocks equal: before it starts a transfer at MIST time `t`, it runs ASTRA-sim
+up to `t`, and it schedules a step at the time of every pending ASTRA-sim
+event. Transfers therefore start when the request leaves its source client and
+finish at the time ASTRA-sim computes, including queueing behind earlier
+transfers on shared links. This uses the `get_next_event_time` and
+`advance_to` bindings, which the submodule commit pinned here provides.

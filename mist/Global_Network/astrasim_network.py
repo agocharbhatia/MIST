@@ -4,9 +4,9 @@ Wraps the ``simulation_py_congestion_aware`` pybind11 module built from the
 ``extern/network_backend/astra-network-analytical`` submodule (see
 ``docs/astrasim.md``). Client ``i`` maps to NPU ``i`` of the topology.
 
-ASTRA-sim keeps time in ns; MIST keeps time in ms. ASTRA-sim has its own
-clock, so a transfer's duration is measured on that clock and added to the
-time the request left its source client.
+ASTRA-sim keeps time in ns and MIST in ms; both clocks start at 0 and the
+coordinator keeps them equal. This needs the `get_next_event_time` and
+`advance_to` bindings of the submodule's `mist-integration` branch.
 """
 import importlib
 import os
@@ -49,20 +49,34 @@ class AstraSimNetwork:
     def npus_count(self) -> int:
         return self.topology.get_npus_count()
 
-    def now_ns(self) -> float:
-        return self.event_queue.get_current_time()
+    def send(self, now_ms: float, size_bytes: int, src: int, dst: int, tag: int):
+        """Start a transfer of `size_bytes` from NPU `src` to NPU `dst` at MIST time `now_ms`.
 
-    def send(self, size_bytes: int, src: int, dst: int, tag: int):
-        """Start a transfer of `size_bytes` from NPU `src` to NPU `dst`, tagged with `tag`."""
+        Call advance(now_ms) first, so ASTRA-sim has no pending event before `now_ms`."""
+        t = _to_ns(now_ms)
+        if t > self.event_queue.get_current_time():
+            self.event_queue.advance_to(t)
         chunk = self._sim.Chunk.create_with_event_queue(
             size_bytes, src, dst, tag, self.topology, self.event_queue)
         self.topology.send_python(chunk)
 
-    def idle(self) -> bool:
-        return self.event_queue.finished()
+    def next_event_ms(self):
+        """MIST time of the next pending ASTRA-sim event, or None when idle."""
+        if self.event_queue.finished():
+            return None
+        return self.event_queue.get_next_event_time() / NS_PER_MS
 
-    def step(self):
-        """Process the next ASTRA-sim event. Returns (ns advanced, tags of finished transfers)."""
-        before = self.now_ns()
-        self.event_queue.proceed()
-        return self.now_ns() - before, list(self.event_queue.get_and_clear_arrivals())
+    def advance(self, now_ms: float):
+        """Process every ASTRA-sim event up to MIST time `now_ms`.
+
+        Returns [(finish time ms, tag)] for the transfers that finished."""
+        t, done = _to_ns(now_ms), []
+        while not self.event_queue.finished() and self.event_queue.get_next_event_time() <= t:
+            self.event_queue.proceed()
+            done += [(self.event_queue.get_current_time() / NS_PER_MS, tag)
+                     for tag in self.event_queue.get_and_clear_arrivals()]
+        return done
+
+
+def _to_ns(ms: float) -> int:
+    return round(ms * NS_PER_MS)
