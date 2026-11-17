@@ -174,11 +174,11 @@ def distserve(q, **kw):
         return repr(e)[:80]
 q = queue(rps=5)
 r0, r1 = distserve(q), distserve(q, astrasim_topology=f"{ASTRA_INPUT_DIR}/Ring.yml")
-if r0.startswith("served"):
-    check("DistServe with ASTRA-sim", r1 == r0, f"analytical: {r0} | astra: {r1}")
-else:
+if r0.startswith("KeyError") and r1 == r0:
     # DistServe raises KeyError on main as well, before any transfer; not an ASTRA-sim issue.
     print(f"SKIP  DistServe fails without ASTRA-sim too  analytical: {r0} | astra: {r1}")
+else:
+    check("DistServe with ASTRA-sim", r0.startswith("served") and r1 == r0, f"analytical: {r0} | astra: {r1}")
 
 # 7b. Two coordinators with their own ASTRA-sim instances do not share event queues.
 q = queue(rps=10)
