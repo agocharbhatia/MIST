@@ -21,10 +21,12 @@ logger = logging.getLogger(__name__)
 
 class EventType(enum.Enum):
     """Status of a sequence."""
+    # At equal times, events run in this order: a transfer that finishes at T is
+    # handed to its client before that client starts a batch at T.
     STAGE_PUSH = enum.auto()
-    CLIENT_STEP = enum.auto()
-    NETWORK_SEND = enum.auto()
     NETWORK_STEP = enum.auto()
+    NETWORK_SEND = enum.auto()
+    CLIENT_STEP = enum.auto()
 
     def __lt__(self, other):
         return self.value < other.value

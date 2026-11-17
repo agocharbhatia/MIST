@@ -112,13 +112,14 @@ def test_clocks_stay_aligned_under_contention(tmp_path, monkeypatch):
     transfer finishes before it was sent or before the previous one on the link."""
     backend = _fake_backend()
     link_free = [0]
-    sends = []
+    sends, sizes = [], {}
 
     def send_python(self, chunk):
         size, req_id, q = chunk
         start = max(q.now, link_free[0])
         link_free[0] = start + round((LATENCY_MS + size / 2**20 / BW_GBPS) * 1e6)
         sends.append((req_id, q.now, link_free[0]))
+        sizes[req_id] = size
         heapq.heappush(q.events, (link_free[0], req_id, req_id))
 
     backend.Topology.send_python = send_python
@@ -129,10 +130,17 @@ def test_clocks_stay_aligned_under_contention(tmp_path, monkeypatch):
     net = _run(queue, astrasim_topology=str(topo))
 
     assert net.request_serviced == len(queue)
-    assert any(end - sent > round((LATENCY_MS + 1 / 2**20 / BW_GBPS) * 1e6) * 2 for _, sent, end in sends), \
-        "expected some queueing on the link"
+    alone = {req_id: round((LATENCY_MS + size / 2**20 / BW_GBPS) * 1e6) for req_id, size in sizes.items()}
+    assert any(end - sent > 1.5 * alone[req_id] for req_id, sent, end in sends), "expected queueing on the link"
     by_id = {r.request_id: r for r in net.completed_requests}
     for req_id, sent_ns, end_ns in sends:
         kv = by_id[req_id].metrics.kv_transfer_time
         if kv is not None:
             assert kv == pytest.approx((end_ns - sent_ns) / 1e6, abs=1e-5)
+
+
+def test_transfer_finishing_at_batch_start_joins_that_batch():
+    """At equal times, a finished transfer's STAGE_PUSH runs before the client's step."""
+    from mist.Coordinator.MIST_Coordinator import EventType
+    order = sorted([EventType.CLIENT_STEP, EventType.NETWORK_SEND, EventType.NETWORK_STEP, EventType.STAGE_PUSH])
+    assert order == [EventType.STAGE_PUSH, EventType.NETWORK_STEP, EventType.NETWORK_SEND, EventType.CLIENT_STEP]

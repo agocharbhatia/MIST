@@ -9,6 +9,7 @@ coordinator keeps them equal. This needs the `get_next_event_time` and
 `advance_to` bindings of the submodule's `mist-integration` branch.
 """
 import importlib
+import math
 import os
 import sys
 
@@ -42,8 +43,14 @@ class AstraSimNetwork:
             raise FileNotFoundError(f"ASTRA-sim topology file not found: {topology_file}")
         self._sim = _load_backend()
         self.event_queue = self._sim.EventQueue()
-        self._sim.Topology.set_event_queue(self.event_queue)
+        self._activate()
         self.topology = self._sim.construct_topology(self._sim.NetworkParser(topology_file))
+
+    def _activate(self):
+        # ASTRA-sim keeps one event queue for all links in a static member. Point it at
+        # this instance's queue before every operation, so several coordinators (each
+        # with its own AstraSimNetwork) do not schedule into each other's queues.
+        self._sim.Topology.set_event_queue(self.event_queue)
 
     @property
     def npus_count(self) -> int:
@@ -53,7 +60,10 @@ class AstraSimNetwork:
         """Start a transfer of `size_bytes` from NPU `src` to NPU `dst` at MIST time `now_ms`.
 
         Call advance(now_ms) first, so ASTRA-sim has no pending event before `now_ms`."""
+        self._activate()
         t = _to_ns(now_ms)
+        if not self.event_queue.finished() and self.event_queue.get_next_event_time() <= t:
+            raise RuntimeError("ASTRA-sim has pending events before the send time; call advance() first")
         if t > self.event_queue.get_current_time():
             self.event_queue.advance_to(t)
         chunk = self._sim.Chunk.create_with_event_queue(
@@ -70,6 +80,7 @@ class AstraSimNetwork:
         """Process every ASTRA-sim event up to MIST time `now_ms`.
 
         Returns [(finish time ms, tag)] for the transfers that finished."""
+        self._activate()
         t, done = _to_ns(now_ms), []
         while not self.event_queue.finished() and self.event_queue.get_next_event_time() <= t:
             self.event_queue.proceed()
@@ -79,4 +90,6 @@ class AstraSimNetwork:
 
 
 def _to_ns(ms: float) -> int:
-    return round(ms * NS_PER_MS)
+    # Round up: a transfer may start up to 1 ns late, never early, so no ASTRA-sim
+    # event (even a zero-length serialization) lands before the MIST time that caused it.
+    return math.ceil(ms * NS_PER_MS)

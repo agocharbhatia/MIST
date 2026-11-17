@@ -70,4 +70,5 @@ transfers on shared links. This uses the `get_next_event_time` and
 `python scripts/verify_astrasim.py` runs MIST with and without ASTRA-sim and
 checks that isolated transfers take latency + size / bandwidth, that queueing
 on a shared link matches a hand-computed FIFO link, that no event is scheduled
-in the past, and that runs without ASTRA-sim are unchanged.
+in the past, and that coordinators with and without ASTRA-sim serve the same
+requests.
