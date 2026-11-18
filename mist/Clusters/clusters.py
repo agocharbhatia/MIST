@@ -1,6 +1,6 @@
 from logging import raiseExceptions
 import enum
-from typing import TYPE_CHECKING, ClassVar, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, ClassVar, Dict, Iterable, List, Optional, Tuple
 from mist.Request import Request, DataMetrics, RequestMetrics
 import os
 import csv
@@ -229,7 +229,7 @@ class ClusterConfig:
             
         return 0, 0
 
-    def get_chunked_time(self, prefills: List[Request], decodes: List[Request]) -> float:
+    def get_chunked_time(self, prefills: List[Request], decodes: List[Request]) -> Tuple[float, float]:
         """
             API call to the speculative cost model for getting the chunked prefill/decode time.
 

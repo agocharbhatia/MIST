@@ -1,47 +1,85 @@
-# MIST — Multi-stage AI Inference Simulation Toolkit
+<div align="center">
 
-**MIST** is an event-driven simulator for co-designing LLM inference
-systems: heterogeneous hardware, multi-stage request pipelines
-(RAG, KV-cache retrieval, prefill, decode), batching policies and
-prefill/decode (PD) disaggregation. It is the artifact for the SC 2026 paper
-*"MIST: A Co-Design Framework for Heterogeneous, Multi-Stage LLM Inference."*
+# MIST
 
-MIST answers questions like *"what TTFT/TPOT/throughput would this model get on
-2×H100 prefill + 4×L40S decode under this trace?"* in seconds, without the
-hardware. Per-step latencies come from either regressors trained on profiled
-vLLM runs or the analytical
-[ECHELON](https://github.com/astra-sim/GenZ-LLM-Analyzer) model (repository and
-Python package still named GenZ).
+<h4>Multi-stage AI Inference Simulation Toolkit</h4>
 
-Highlights from the paper:
+*Co-design LLM serving across hardware, schedulers and networks — in seconds, on a laptop.*
 
-- End-to-end latency within 6% of real deployed systems and of Splitwise-sim.
-- Mean absolute error per stage: 4.2% prefill, 1.9% decode, 3.2% chunked
-  prefill, 5.7% KV retrieval, 4.0% inter-client communication.
-- The profiled step-cost predictor has 2.5% average error and runs 20–50×
-  faster than real hardware.
-- Case studies: under the paper's pricing and hardware assumptions,
-  multi-vendor PD-disaggregated deployments give up to 49.3% more tokens/$
-  than single-vendor PD disaggregation; KV storage co-design shows how the
-  memory hierarchy shapes tail latency.
+Install with `pip install -e .` · one-file quickstart · plug in your own cost model or router by overriding one method
 
-### Overview
+[![tests](https://github.com/astra-sim/MIST/actions/workflows/tests.yml/badge.svg)](https://github.com/astra-sim/MIST/actions/workflows/tests.yml)
+[![python](https://img.shields.io/badge/python-%E2%89%A53.10-blue)](#install)
+[![paper](https://img.shields.io/badge/paper-SC%20'26-8a2be2)](#citation)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-MIST takes a request trace, where each request is a pipeline of stages. The
-coordinator routes each stage to a client, and each client's scheduler batches
-work and asks a step-cost source how long each batched step takes. Step costs
-come from a predictor trained on profiled vLLM runs, real execution, an
-analytical model, or an external simulator such as ECHELON for hardware that
-does not exist yet.
+</div>
 
-<p align="center"><img src="docs/images/mist_overview.png" width="900" alt="MIST overview: coordinator, per-client schedulers, step-cost sources and outputs"></p>
+## Latest news
 
-*Dashed boxes are external tools.*
+- **ASTRA-sim network backend.** Inter-client transfers (for example, the KV
+  cache moving from prefill to decode) can now go through ASTRA-sim's
+  congestion-aware network model, so concurrent transfers share links. Turn it
+  on with one argument; see [Network backends](#network-backends).
+- **Paper naming.** Code names now match the SC '26 paper (*client*,
+  *cluster*, *Stage-Push*, *Client-Step*). Old names still work for one release;
+  see [CHANGELOG.md](CHANGELOG.md).
+- **SC '26.** MIST is the artifact for *"MIST: A Co-Design Framework for
+  Heterogeneous, Multi-Stage LLM Inference."*
 
-> **Status: research code.** The core simulation loop is tested and used for
-> the paper, but APIs are not stable, some modules are experimental (see
-> [Known limitations](#known-limitations)), and results from older, pre-release
-> versions can differ — see [CHANGELOG.md](CHANGELOG.md).
+## What is MIST?
+
+MIST is an event-driven simulator for LLM inference systems. It answers
+questions like:
+
+> *What TTFT, TPOT and throughput would this model get on 2×H100 prefill +
+> 4×L40S decode under this trace?*
+
+You describe the requests, the replicas and the hardware. MIST replays the
+trace through a coordinator, per-replica schedulers adapted from vLLM, and a
+step-cost model for each piece of hardware, and reports latency and
+throughput. A run takes seconds on a laptop CPU.
+
+<p align="center"><img src="docs/images/mist_overview.png" width="860" alt="MIST overview: coordinator, per-client schedulers, step-cost sources and outputs"></p>
+<p align="center"><em>Dashed boxes are external tools.</em></p>
+
+### Key features
+
+- **Multi-stage requests.** Each request is a pipeline of stages: RAG,
+  KV-cache retrieval, prefill, decode. Each stage runs on the client that
+  serves it.
+- **Aggregated and disaggregated serving.** One replica doing prefill and
+  decode, or Splitwise/DistServe-style prefill and decode pools with KV-cache
+  transfer between them.
+- **Heterogeneous hardware.** Mix GPU types and vendors per pool, each with
+  its own tensor/pipeline parallelism and precision.
+- **Pluggable step costs.** Regressors trained on profiled vLLM runs, the
+  analytical [ECHELON](https://github.com/astra-sim/GenZ-LLM-Analyzer) model
+  for hardware that does not exist yet, or interpolated performance traces.
+- **Batching policies.** Static, continuous, mixed, chunked and disaggregated
+  batching with token, batch-size and KV-cache budgets.
+- **Network modelling.** A fast analytical link model by default, or
+  [ASTRA-sim](https://github.com/astra-sim/astra-network-analytical) for
+  congestion on shared links.
+- **Chrome traces.** Every request and client step can be written to a trace
+  you open in `chrome://tracing` or [Perfetto](https://ui.perfetto.dev).
+
+### Accuracy (from the paper)
+
+| Metric | Result |
+| --- | --- |
+| End-to-end latency vs. real deployed systems and Splitwise-sim | within 6% |
+| Mean absolute error per stage | 4.2% prefill · 1.9% decode · 3.2% chunked prefill · 5.7% KV retrieval · 4.0% inter-client communication |
+| Profiled step-cost predictor | 2.5% average error, 20–50× faster than real hardware |
+
+### What people use it for
+
+| Question | Where to start |
+| --- | --- |
+| Which hardware mix gives the most tokens per dollar? Under the paper's pricing and hardware assumptions, multi-vendor PD-disaggregated deployments give up to 49.3% more tokens/$ than single-vendor PD disaggregation. | `disaggregated_prefill_decode.py` |
+| How does the KV-cache memory hierarchy (HBM, DRAM, SSD) shape tail latency? | `kv_cache_retrieval.py` |
+| Chunked or continuous batching for this workload? | `aggregated_serving.py` |
+| How much does network congestion slow KV-cache transfer under load? | [Network backends](#network-backends) |
 
 ## Install
 
@@ -96,42 +134,85 @@ stats = coordinator.get_global_stats()
 print(f"TTFT {stats.TTFT:.1f} ms, TPOT {stats.TPOT:.1f} ms, {stats.output_throughput:.0f} output tok/s")
 ```
 
-Pass `logging_file="trace.json"` to write a Chrome trace you can open in
-`chrome://tracing` or [Perfetto](https://ui.perfetto.dev).
+Pass `logging_file="trace.json"` to write a Chrome trace.
 
-More in [`examples/`](examples):
+### Examples
 
 | Script | Shows |
 | --- | --- |
-| `aggregated_serving.py` | One replica doing prefill + decode; chunked vs continuous batching |
-| `disaggregated_prefill_decode.py` | Splitwise-style prefill/decode pools with KV transfer, replaying a trace |
-| `kv_cache_retrieval.py` | A cache-retrieval stage loading prefix KV from a DRAM/SSD hierarchy |
+| [`aggregated_serving.py`](examples/aggregated_serving.py) | One replica doing prefill + decode; chunked vs continuous batching |
+| [`disaggregated_prefill_decode.py`](examples/disaggregated_prefill_decode.py) | Splitwise-style prefill/decode pools with KV transfer, replaying a trace |
+| [`kv_cache_retrieval.py`](examples/kv_cache_retrieval.py) | A cache-retrieval stage loading prefix KV from a DRAM/SSD hierarchy |
+| [`custom_extensions.py`](examples/custom_extensions.py) | Your own step-cost model and routing policy, in ~30 lines |
+
+## Network backends
+
+Requests move between clients, for example the KV cache from a prefill
+replica to a decode replica. MIST times these transfers with one of two
+backends. Both are in `main`; you choose per coordinator.
+
+| | Analytical (default) | ASTRA-sim |
+| --- | --- | --- |
+| Model | latency + size / bandwidth per link | congestion-aware: concurrent transfers queue on shared links |
+| Setup | none | build the submodule once ([docs/astrasim.md](docs/astrasim.md)) |
+| Turn on | — | `astrasim_topology="<topology>.yml"` |
+
+```python
+from mist.Coordinator import MISTCoordinatorDisagg
+from mist.Global_Network.astrasim_network import ASTRA_INPUT_DIR
+
+coordinator = MISTCoordinatorDisagg(
+    ...,                                               # as before
+    astrasim_topology=f"{ASTRA_INPUT_DIR}/Ring.yml",   # omit (or None) for the analytical model
+)
+```
+
+Without `astrasim_topology`, results are identical to earlier releases.
+`python scripts/verify_astrasim.py` checks the ASTRA-sim path end to end.
+
+## Extend MIST
+
+MIST is built to be extended without touching its core. Each layer has one
+plug-in point: subclass a class and override one or two methods.
+
+| To change | Subclass | Override |
+| --- | --- | --- |
+| How long a batch takes (new hardware, your own cost model) | `ClusterConfig` | `get_chunked_time(prefills, decodes) -> (latency_ms, energy)`, `get_max_kv_tokens()` |
+| Which replica serves a stage (routing / load balancing) | `MISTCoordinator` | `_determine_dst_client(client_type, request) -> client_id` |
+| How inter-client transfers are timed | `MISTCoordinator` | `_get_move_request_time(request, src, dst) -> ms`, or pass `astrasim_topology=` |
+| A new kind of client (RAG, KV retrieval, a tool call, ...) | `MISTClient` | `get_machine_runtimes(requests) -> [ms per request]` (simple), or `step(current_time)` (batched); see `KVRetrievalClient` |
+
+A complete cost model is a few lines:
+
+```python
+from mist import ClusterConfig
+
+class LinearCost(ClusterConfig):
+    def get_chunked_time(self, prefills, decodes):
+        prefill_tokens = sum(r.current_scheduled_prefill for r in prefills)
+        return 1.0 + 0.02 * prefill_tokens + 0.05 * len(decodes), 0.0   # (ms, energy)
+
+    def get_max_kv_tokens(self):
+        return 200_000
+
+# then: LLMClient(..., cluster=LinearCost(device="H100_GPU", model=model))
+```
+
+[`examples/custom_extensions.py`](examples/custom_extensions.py) runs this
+cost model together with a custom router. Built-in variants to copy from:
+`vLLMClusterConfig` and `TraceClusterConfig` (cost models),
+`MISTCoordinatorDisagg` (routing), `KVRetrievalClient` (client).
 
 ## Architecture
 
-The paper describes MIST in three layers: the **AI Workload
-layer** (request traces, each request a pipeline of stages), the **System &
-Software layer** (a coordinator plus one scheduler per client) and the
-**Hardware layer** (one logical cluster per client, costed by a step-cost
-source). The code uses the paper's names:
-
-| Paper term | Code |
-| --- | --- |
-| Coordinator (load balancer, model mapper, global communicator) | `mist.Coordinator` (`MISTCoordinator`, `global_router`) |
-| Stage-Push / Client-Step events | `EventType.STAGE_PUSH` / `EventType.CLIENT_STEP` |
-| Client: LLM client, KV client, RAG client | `mist.Client`: `LLMClient`, `KVRetrievalClient`, `RAGClient` |
-| Scheduler (request queuer, batch manager, KV manager) | `mist.Scheduler` |
-| HW cluster and its runtime method (empirical, analytical, external simulator) | `mist.Clusters`: `vLLMClusterConfig`, `ClusterConfig` (ECHELON), `TraceClusterConfig`, `MemoryCacheConfig` |
-| Inter-client network model | `mist.Global_Network` |
-
-Code from versions before 0.2 used *Engine* for client and *Platform* for
-cluster (`mist.Engine`, `LLMEngine`, `PlatformConfig`, `engine_types=`,
-`platform=`, `coordinator.add_engine`, ...). These names still work for one
-release and emit a `DeprecationWarning`; see [CHANGELOG.md](CHANGELOG.md).
+The paper describes MIST in three layers: the **AI Workload layer** (request
+traces, each request a pipeline of stages), the **System & Software layer** (a
+coordinator plus one scheduler per client) and the **Hardware layer** (one
+logical cluster per client, costed by a step-cost source).
 
 ```
- Coordinator   event loop (heap of STAGE_PUSH / CLIENT_STEP events),
-     │         request routing, inter-client KV transfer cost
+ Coordinator   event loop (heap of STAGE_PUSH / CLIENT_STEP / NETWORK_* events),
+     │         request routing, inter-client transfers
      ▼
  Client        one model instance: LLMClient (prefill/decode),
      │         KVRetrievalClient, RAGClient, host
@@ -146,6 +227,28 @@ release and emit a `DeprecationWarning`; see [CHANGELOG.md](CHANGELOG.md).
                MemoryCacheConfig    tiered KV-cache retrieval
 ```
 
+<details>
+<summary><b>Paper terms → code</b></summary>
+
+| Paper term | Code |
+| --- | --- |
+| Coordinator (load balancer, model mapper, global communicator) | `mist.Coordinator` (`MISTCoordinator`, `global_router`) |
+| Stage-Push / Client-Step events | `EventType.STAGE_PUSH` / `EventType.CLIENT_STEP` |
+| Client: LLM client, KV client, RAG client | `mist.Client`: `LLMClient`, `KVRetrievalClient`, `RAGClient` |
+| Scheduler (request queuer, batch manager, KV manager) | `mist.Scheduler` |
+| HW cluster and its runtime method (empirical, analytical, external simulator) | `mist.Clusters`: `vLLMClusterConfig`, `ClusterConfig` (ECHELON), `TraceClusterConfig`, `MemoryCacheConfig` |
+| Inter-client network model | `mist.Global_Network` (analytical links, `AstraSimNetwork`) |
+
+Code from versions before 0.2 used *Engine* for client and *Platform* for
+cluster (`mist.Engine`, `LLMEngine`, `PlatformConfig`, `engine_types=`,
+`platform=`, `coordinator.add_engine`, ...). These names still work for one
+release and emit a `DeprecationWarning`; see [CHANGELOG.md](CHANGELOG.md).
+
+</details>
+
+<details>
+<summary><b>Package map</b></summary>
+
 | Package | Contents |
 | --- | --- |
 | `mist.Coordinator` | `MISTCoordinator`, `MISTCoordinatorDisagg` (Splitwise), `MISTCoordinatorDisagg_DistServe`, routers |
@@ -153,8 +256,10 @@ release and emit a `DeprecationWarning`; see [CHANGELOG.md](CHANGELOG.md).
 | `mist.Scheduler` | `Scheduler`, `SchedulerConfig`, `BatchingMethod` |
 | `mist.Clusters` | cost models above; bundled vLLM profiles in `Clusters/vllm_runtime_data/` |
 | `mist.Request`, `mist.Input_requests` | request lifecycle; Uniform/Poisson/Normal/Bursty generators, trace replay |
-| `mist.Global_Network` | GPU interconnect specs for transfer cost |
+| `mist.Global_Network` | GPU interconnect specs and the ASTRA-sim backend for transfer cost |
 | `mist.Tracing` | Chrome trace JSON writer |
+
+</details>
 
 ### Things worth knowing
 
@@ -175,13 +280,41 @@ Paper figures and tables are produced by
 [MIST-Simulator/SC_Paper_Charts](https://github.com/MIST-Simulator/SC_Paper_Charts),
 which installs this package.
 
+> **Status: research code.** The core simulation loop is tested and used for
+> the paper, but APIs are not stable and some modules are experimental (see
+> [Known limitations](#known-limitations)). Results from older, pre-release
+> versions can differ; see [CHANGELOG.md](CHANGELOG.md).
+
+## Roadmap
+
+These are described in the paper or known gaps, and are good places to
+contribute:
+
+- Speculative decoding with an EAGLE-style draft stage.
+- 3- and 4-way disaggregation.
+- DistServe coordinator: it currently raises `KeyError` on the first request.
+- Preemption in the scheduler (today, requests whose KV cache can never fit
+  are dropped).
+
+## Contributing
+
+Bug reports, fixes and new cluster or client models are welcome. A good
+first PR:
+
+- **Plug in a model:** a new cost model, router or client (see
+  [Extend MIST](#extend-mist)), with an example.
+- **Add a hardware profile:** drop a profiled vLLM table into
+  `mist/Clusters/vllm_runtime_data/` (named `<Model>_NVIDIA_<GPU>_<TP>.csv`).
+- **Add an example** for a question MIST answers that is not covered above.
+- **Pick an item** from the [Roadmap](#roadmap) or the
+  [Known limitations](#known-limitations).
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and PR rules (tests,
+milliseconds everywhere, flag result-changing PRs in the changelog). Open an
+[issue](https://github.com/astra-sim/MIST/issues) for questions.
+
 ## Known limitations
 
-- **Paper features not in this release.** The paper also describes
-  speculative decoding with an EAGLE-style draft stage, 3- and 4-way
-  disaggregation, and ASTRA-sim as the inter-client network backend. This
-  repository does not include them yet; inter-client transfers use the
-  analytical link model in `mist.Global_Network`.
 - **GenZ version skew.** Current GenZ `db.py` refers to `*QuantMode.bfloat16`
   names that its vendored `aiconfigurator` renamed; constructing an ECHELON
   `NPU` for the profiled-ops devices (`h100_sxm`, `tpu_v6e`, ...) raises
@@ -199,6 +332,16 @@ which installs this package.
   (model, GPU, TP) combinations and warns when it does.
 - The RAG client and the DistServe coordinator see far less use than the rest
   of the code; treat their results as experimental.
+- The ASTRA-sim backend needs a compiled module; see
+  [docs/astrasim.md](docs/astrasim.md).
+
+## Acknowledgments
+
+MIST builds on these projects; thank you to their developers:
+
+- [**vLLM**](https://github.com/vllm-project/vllm): the per-client scheduler is adapted from its scheduler.
+- [**ECHELON / GenZ**](https://github.com/astra-sim/GenZ-LLM-Analyzer): analytical step-cost model.
+- [**ASTRA-sim**](https://github.com/astra-sim/astra-network-analytical): congestion-aware network backend.
 
 ## Citation
 
@@ -241,5 +384,4 @@ If you use the analytical step-cost backend, also cite ECHELON:
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Contributions welcome, see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+MIT; see [LICENSE](LICENSE).

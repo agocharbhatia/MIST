@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — ASTRA-sim network backend
+
+- Coordinators take `astrasim_topology=<topology .yml>`. Transfers between
+  different clients then go through the congestion-aware ASTRA-sim analytical
+  backend (git submodule `extern/network_backend/astra-network-analytical`)
+  instead of the analytical link model. Default behaviour does not change.
+  See `docs/astrasim.md`.
+
 ## Unreleased — paper naming
 
 Code names now match the SC'26 paper. Results do not change.

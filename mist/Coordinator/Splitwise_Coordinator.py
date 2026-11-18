@@ -46,6 +46,7 @@ class MISTCoordinatorDisagg(MISTCoordinator):
         logging_file: Optional[str] = 'trace.json',
         max_sim_time: Optional[float] = np.inf,
         max_pending_prompt_tokens: int = 8192,
+        astrasim_topology: Optional[str] = None,
         ) -> None:
 
         # Defaults are built per instance: a request queue or cluster in the signature
@@ -72,7 +73,8 @@ class MISTCoordinatorDisagg(MISTCoordinator):
         super().__init__(
             starting_request_queue=request_queue_distr,
             logging_file=logging_file,
-            max_sim_time=max_sim_time
+            max_sim_time=max_sim_time,
+            astrasim_topology=astrasim_topology,
             )
 
         # PARAMS for the cluster (system) configs

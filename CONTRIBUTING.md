@@ -11,6 +11,12 @@ pip install -e ".[test]"
 pytest
 ```
 
+## Where to plug in
+
+New cost models, routers and clients are subclasses; see "Extend MIST" in
+the README and `examples/custom_extensions.py`. Prefer a subclass plus an
+example over editing the core event loop.
+
 ## Pull requests
 
 - Keep each PR focused on one change, and include a test that fails without it.

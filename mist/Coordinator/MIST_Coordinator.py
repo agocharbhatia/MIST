@@ -10,8 +10,10 @@ from uuid import uuid4
 import pandas as pd
 import numpy as np
 import enum
+import math
 
 from mist.Coordinator.global_router import CoordRouterType, LoadTypes, req_is_heavy
+from mist.Global_Network.astrasim_network import AstraSimNetwork, NS_PER_MS
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,7 +21,11 @@ logger = logging.getLogger(__name__)
 
 class EventType(enum.Enum):
     """Status of a sequence."""
+    # At equal times, events run in this order: a transfer that finishes at T is
+    # handed to its client before that client starts a batch at T.
     STAGE_PUSH = enum.auto()
+    NETWORK_STEP = enum.auto()
+    NETWORK_SEND = enum.auto()
     CLIENT_STEP = enum.auto()
 
     def __lt__(self, other):
@@ -33,6 +39,7 @@ class MISTCoordinator:
             max_sim_time: Optional[float] = np.inf,
             network_file: Optional[str | pd.DataFrame] = None,
             router_type: Optional[CoordRouterType] = CoordRouterType.ROUND_ROBIN,
+            astrasim_topology: Optional[str] = None,
         ):
 
         self.router_type = router_type
@@ -45,6 +52,12 @@ class MISTCoordinator:
         self.client_next_step = dict()
         self.client_connection_bw_latency_df = pd.DataFrame()
         self.network_file = network_file
+
+        ## ASTRA-sim network backend: when set, transfers between different clients
+        ## go through it (with congestion) instead of the analytical link model.
+        self.network = AstraSimNetwork(astrasim_topology) if astrasim_topology else None
+        self._in_flight = dict()        # request_id -> (req, src client, dst client, send time ms, record KV time)
+        self._network_steps = set()     # MIST times with a NETWORK_STEP already queued
 
         ## Request related parameters
         self.starting_request_queue = [] if starting_request_queue is None else starting_request_queue
@@ -117,6 +130,9 @@ class MISTCoordinator:
             self.initial_client_connection_from_file()
         else:
             self.initial_client_connection_df()
+        if self.network is not None and self.network.npus_count < self.num_total_clients:
+            raise ValueError(f"ASTRA-sim topology has {self.network.npus_count} NPUs but the coordinator "
+                             f"has {self.num_total_clients} clients; client i maps to NPU i.")
 
         next_print_time = 1000
 
@@ -197,6 +213,9 @@ class MISTCoordinator:
                             # print(f'Req {req.request_id} serviced')
                         else:
                             next_client_id = self._get_next_client(req)
+                            if self.network is not None and client_id != next_client_id:
+                                self._queue_network_send(req, client_id, next_client_id, request_client_exit_time)
+                                continue
                             self.logger.log_event(req.request_id, 'Coordinator', str(client_id)+"->"+str(next_client_id), time=request_client_exit_time,type= "B")
                             movement_time = self._get_move_request_time(req, client_id, next_client_id)
                             self.logger.log_event(req.request_id, 'Coordinator', str(client_id)+"->"+str(next_client_id), time=request_client_exit_time+movement_time,type= "E")
@@ -205,12 +224,49 @@ class MISTCoordinator:
                             # Handle requests that are needed to be reinserted to the client
                             req_push_event = (req, next_client_id)
                             heapq.heappush(self.event_queue, (request_client_exit_time+movement_time, EventType.STAGE_PUSH, req_push_event))
+            elif (event_type == EventType.NETWORK_SEND):
+                self._network_send(event_push_time, *event_items)
+            elif (event_type == EventType.NETWORK_STEP):
+                self._network_steps.discard(event_push_time)
+                self._advance_network(event_push_time)
             else:
                 raise ValueError(f"No event type found for the client:{event_type}")
         if self.logger.filename is not None:
             self.logger.save()
         ## Log the completion of the simulation
         self.global_stats = self.get_global_stats()
+
+    ## ASTRA-sim transfers. ASTRA-sim's clock (ns) is kept equal to MIST's clock (ms).
+    def _queue_network_send(self, req, src_client, dst_client, exit_time):
+        """Decide the transfer now; start it in ASTRA-sim when MIST time reaches `exit_time`."""
+        size_bytes = max(1, math.ceil(req.get_data_movement_size(self.clients[dst_client].model)))
+        record_kv = req.current_stage == RequestStage.PREFILL
+        req.current_stage = req.get_next_stage()
+        heapq.heappush(self.event_queue, (exit_time, EventType.NETWORK_SEND,
+                                          (req, src_client, dst_client, size_bytes, record_kv)))
+
+    def _network_send(self, now, req, src_client, dst_client, size_bytes, record_kv):
+        self._advance_network(now)
+        self.logger.log_event(req.request_id, 'Coordinator', f"{src_client}->{dst_client}", time=now, type="B")
+        self._in_flight[req.request_id] = (req, src_client, dst_client, now, record_kv)
+        self.network.send(now, size_bytes, src_client, dst_client, req.request_id)
+        self._schedule_network_step()
+
+    def _advance_network(self, now):
+        """Run ASTRA-sim up to `now` and hand finished transfers to their destination client."""
+        for t, request_id in self.network.advance(now):
+            req, src_client, dst_client, sent_ms, record_kv = self._in_flight.pop(request_id)
+            if record_kv:
+                req.metrics.kv_transfer_time = t - sent_ms
+            self.logger.log_event(req.request_id, 'Coordinator', f"{src_client}->{dst_client}", time=t, type="E")
+            heapq.heappush(self.event_queue, (t, EventType.STAGE_PUSH, (req, dst_client)))
+        self._schedule_network_step()
+
+    def _schedule_network_step(self):
+        t = self.network.next_event_ms()
+        if t is not None and t not in self._network_steps:
+            self._network_steps.add(t)
+            heapq.heappush(self.event_queue, (t, EventType.NETWORK_STEP, None))
 
     # TODO: Add the logic to get the client stats
     def get_global_stats(self) -> ClientMetrics:
